@@ -1,0 +1,5 @@
+beautifulsoup4==4.12.3
+html2text==2024.2.26
+questionary==2.0.1
+requests==2.31.0
+rich==13.7.0
