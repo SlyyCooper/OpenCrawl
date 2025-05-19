@@ -69,7 +69,7 @@ pip install questionary requests html2text rich beautifulsoup4
 
 ## 3. Script Overview
 
-This script fetches HTML from user-supplied URLs, extracts the **main content** (excluding `<header>`, `<nav>`, `<footer>`), removes doc-specific symbol elements, and converts the results into:
+This script fetches HTML from user-supplied URLs, extracts the **main content** (excluding `<header>`, `<nav>`, `<footer>`, and elements whose ID or class includes `"footer"`), removes doc-specific symbol elements, and converts the results into:
 - **Clean HTML**,
 - **Markdown** (with optional Table of Contents),
 - **JSON** (containing the extracted text in a simple dictionary).

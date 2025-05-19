@@ -117,6 +117,12 @@ def get_main_content(html_content):
         for t in soup.find_all(tag_name):
             t.decompose()
 
+    # remove elements with id or class matching 'footer'
+    for elem in soup.find_all(id=re.compile("footer", re.I)):
+        elem.decompose()
+    for elem in soup.find_all(class_=re.compile("footer", re.I)):
+        elem.decompose()
+
     main_tag = soup.find("main")
     if main_tag:
         return str(main_tag)
