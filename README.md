@@ -54,15 +54,15 @@ pip install questionary requests html2text rich beautifulsoup4
 
 1. **Save** the script to a file, for example:  
    ```bash
-   multi_format_cli.py
+   opencrawl.py
    ```
 2. **Make it executable** (if you want to run it directly, on UNIX-like systems):  
    ```bash
-   chmod +x multi_format_cli.py
+   chmod +x opencrawl.py
    ```
 3. **Run** it with Python:
    ```bash
-   python multi_format_cli.py
+   python opencrawl.py
    ```
 
 ---
@@ -226,7 +226,7 @@ When calling `llm_function_call`, you pass in the **function_name** plus named a
 ### **Command-Line / Interactive Menu**
 1. **Launch**:  
    ```bash
-   python multi_format_cli.py
+   python opencrawl.py
    ```
 2. **Select** your desired action from the main menu:
    - **Single Page Conversion**  
@@ -240,7 +240,7 @@ When calling `llm_function_call`, you pass in the **function_name** plus named a
 ### **Importing as a Module**
 1. **Import** the script:
    ```python
-   from multi_format_cli import (
+   from opencrawl import (
        do_single_page_conversion,
        do_recursive_crawling,
        do_map_only,
@@ -259,7 +259,7 @@ When calling `llm_function_call`, you pass in the **function_name** plus named a
 **Single Page Example**  
 1. Run:
    ```bash
-   python multi_format_cli.py
+   python opencrawl.py
    ```
 2. Choose **`1. Single Page Conversion`**.  
 3. Enter a **URL** (e.g., `https://example.com`).  
@@ -270,7 +270,7 @@ When calling `llm_function_call`, you pass in the **function_name** plus named a
 
 **Single Page Conversion** programmatically:
 ```python
-from multi_format_cli import do_single_page_conversion
+from opencrawl import do_single_page_conversion
 
 result_path = do_single_page_conversion(
     url="https://example.com",
@@ -287,7 +287,7 @@ print(f"File saved to {result_path}")
 
 **Recursive Crawling** programmatically:
 ```python
-from multi_format_cli import do_recursive_crawling
+from opencrawl import do_recursive_crawling
 
 do_recursive_crawling(
     url="https://example.com",
@@ -321,7 +321,7 @@ do_recursive_crawling(
 
 Which translates in Python to:
 ```python
-from multi_format_cli import llm_function_call
+from opencrawl import llm_function_call
 
 llm_function_call(
     function_name="do_single_page_conversion",
