@@ -74,6 +74,8 @@ This script fetches HTML from user-supplied URLs, extracts the **main content** 
 - **Markdown** (with optional Table of Contents),
 - **JSON** (containing the extracted text in a simple dictionary).
 
+All requests send a custom `User-Agent` header of `OpenCrawl/1.0` when fetching pages.
+
 It also supports:
 - **Recursive Crawling** of same-domain pages (via BFS with a user-defined depth).
 - **Site Map** generation for all same-domain links (unlimited depth). The site map can be in HTML, Markdown, or JSON adjacency form.
