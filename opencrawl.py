@@ -27,7 +27,6 @@ USAGE:
 """
 
 import os
-import sys
 import re
 import json
 from datetime import datetime
@@ -42,7 +41,6 @@ import questionary
 import html2text
 from rich.console import Console
 from rich.panel import Panel
-from rich import print
 from rich.progress import Progress
 from rich.spinner import Spinner
 from bs4 import BeautifulSoup
