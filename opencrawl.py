@@ -217,13 +217,34 @@ def convert_html_to_markdown(html_content, keep_links=True, keep_images=True, ke
     soup = BeautifulSoup(main_html, "html.parser")
     remove_doc_symbol_elements(soup)
 
+    # Convert <pre> and code-related <div> elements into fenced code blocks
+    for pre in soup.find_all("pre"):
+        content = pre.get_text("\n")
+        pre.replace_with(f"\n```\n{content}\n```\n")
+
+    for div in soup.find_all("div"):
+        classes = div.get("class", [])
+        if any(
+            cls.startswith("language-") or cls in {"highlight", "code"}
+            for cls in classes
+        ):
+            content = div.get_text("\n")
+            div.replace_with(f"\n```\n{content}\n```\n")
+
     converter = html2text.HTML2Text()
     converter.ignore_links = not keep_links
     converter.ignore_images = not keep_images
     converter.ignore_emphasis = not keep_emphasis
+    converter.body_width = 0
     converter.code_block_style = 'fenced'
     
     md_text = converter.handle(str(soup))
+    md_text = re.sub(
+        r'```\s*(.*?)\s*```',
+        lambda m: f"```\n{m.group(1).strip()}\n```",
+        md_text,
+        flags=re.S,
+    )
     md_text = re.sub(r'\n{3,}', '\n\n', md_text)
     md_text = re.sub(r'`{3,}', '```', md_text)
     return md_text.strip()
