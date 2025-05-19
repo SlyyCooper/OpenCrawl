@@ -98,7 +98,11 @@ def fetch_html(url):
     try:
         with Progress() as progress:
             task = progress.add_task("[green]Fetching HTML...", total=None)
-            response = requests.get(url, timeout=15)
+            response = requests.get(
+                url,
+                timeout=15,
+                headers={"User-Agent": "OpenCrawl/1.0"},
+            )
             response.raise_for_status()
             progress.update(task, completed=100)
         return response.text
