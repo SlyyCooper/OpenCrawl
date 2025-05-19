@@ -35,9 +35,10 @@ from urllib.parse import urlparse, urljoin
 from collections import deque
 
 # --- External libraries ---
-#   pip install questionary requests html2text rich beautifulsoup4
+#   pip install questionary httpx html2text rich beautifulsoup4 selectolax
 
-import requests
+import asyncio
+import httpx
 import questionary
 import html2text
 from rich.console import Console
@@ -46,6 +47,7 @@ from rich import print
 from rich.progress import Progress
 from rich.spinner import Spinner
 from bs4 import BeautifulSoup
+from selectolax.parser import HTMLParser
 
 ##############################################################################
 #                               GLOBALS                                      #
@@ -89,49 +91,47 @@ def is_valid_url(url):
 #                       FETCHING & HTML CLEANUP                               #
 ##############################################################################
 
-def fetch_html(url):
+async def fetch_html(url, client):
     """
-    Fetches raw HTML from the URL; raises an exception if it fails.
+    Asynchronously fetch raw HTML from ``url`` using an ``httpx.AsyncClient``.
+    Raises ``RuntimeError`` on any failure.
     """
     if not is_valid_url(url):
         raise ValueError(f"Invalid URL: {url}")
     try:
         with Progress() as progress:
             task = progress.add_task("[green]Fetching HTML...", total=None)
-            response = requests.get(url, timeout=15)
+            response = await client.get(url, timeout=15)
             response.raise_for_status()
             progress.update(task, completed=100)
         return response.text
-    except requests.exceptions.RequestException as e:
-        raise RuntimeError(f"Error fetching the URL: {e}")
+    except httpx.HTTPError as e:
+        raise RuntimeError(f"Error fetching the URL: {e}") from e
 
 def get_main_content(html_content):
     """
-    Returns only the <main> content, removing <header>, <nav>, <footer>.
-    Falls back to <body> if <main> not found; else entire doc.
+    Extract only the ``<main>`` section using ``selectolax`` for speed.
+    Removes ``<header>``, ``<nav>``, ``<footer>`` and elements whose id or class
+    contains ``"footer"``. Falls back to ``<body>`` or the entire document.
     """
-    soup = BeautifulSoup(html_content, "html.parser")
+    tree = HTMLParser(html_content)
 
-    # remove tags
-    for tag_name in ["header", "nav", "footer"]:
-        for t in soup.find_all(tag_name):
-            t.decompose()
+    for selector in ("header", "nav", "footer"):
+        for node in tree.css(selector):
+            node.decompose()
 
-    # remove elements with id or class matching 'footer'
-    for elem in soup.find_all(id=re.compile("footer", re.I)):
-        elem.decompose()
-    for elem in soup.find_all(class_=re.compile("footer", re.I)):
-        elem.decompose()
+    for node in tree.css('[id*="footer" i]'):
+        node.decompose()
+    for node in tree.css('[class*="footer" i]'):
+        node.decompose()
 
-    main_tag = soup.find("main")
-    if main_tag:
-        return str(main_tag)
-
-    body_tag = soup.find("body")
-    if body_tag:
-        return str(body_tag)
-
-    return str(soup)
+    main = tree.css_first("main")
+    if main:
+        return main.html
+    body = tree.css_first("body")
+    if body:
+        return body.html
+    return tree.html
 
 def remove_doc_symbol_elements(soup):
     """
@@ -372,7 +372,7 @@ def handle_file_write(final_text, output_dir, output_format, url, custom_filenam
 #                    PUBLIC-FACING CONVERSION FUNCTIONS                      #
 ##############################################################################
 
-def convert_and_save_page(
+async def convert_and_save_page(
     url,
     output_dir,
     output_format="Markdown",
@@ -389,7 +389,8 @@ def convert_and_save_page(
     Returns the final file path or None on error.
     """
     try:
-        html_content = fetch_html(url)
+        async with httpx.AsyncClient() as client:
+            html_content = await fetch_html(url, client)
     except (ValueError, RuntimeError) as e:
         console.print(f"[red]{e}[/red]")
         return None
@@ -424,12 +425,12 @@ def scrape_links(base_url, html_content):
     """
     Finds all same-domain links in html_content; returns a set of absolute URLs.
     """
-    soup = BeautifulSoup(html_content, 'html.parser')
+    tree = HTMLParser(html_content)
     base_domain = urlparse(base_url).netloc
     links = set()
 
-    for a_tag in soup.find_all('a', href=True):
-        href = a_tag['href']
+    for node in tree.css('a[href]'):
+        href = node.attributes.get('href')
         absolute_link = urljoin(base_url, href)
         parsed_link = urlparse(absolute_link)
         # same domain, skip #fragments
@@ -439,7 +440,7 @@ def scrape_links(base_url, html_content):
 
     return links
 
-def crawl_links(
+async def crawl_links(
     base_url,
     max_depth,
     output_dir,
@@ -457,33 +458,34 @@ def crawl_links(
     visited = set()
     queue = deque([(base_url, 0)])
 
-    while queue:
-        current_url, depth = queue.popleft()
-        if current_url in visited:
-            continue
-        visited.add(current_url)
+    async with httpx.AsyncClient() as client:
+        while queue:
+            current_url, depth = queue.popleft()
+            if current_url in visited:
+                continue
+            visited.add(current_url)
 
-        console.print(f"[bold cyan]Crawling (depth={depth}):[/bold cyan] {current_url}")
-        convert_and_save_page(
-            current_url,
-            output_dir,
-            output_format=output_format,
-            keep_images=keep_images,
-            keep_links=keep_links,
-            keep_emphasis=keep_emphasis,
-            generate_toc=generate_toc,
-            custom_filename=custom_filename
-        )
+            console.print(f"[bold cyan]Crawling (depth={depth}):[/bold cyan] {current_url}")
+            await convert_and_save_page(
+                current_url,
+                output_dir,
+                output_format=output_format,
+                keep_images=keep_images,
+                keep_links=keep_links,
+                keep_emphasis=keep_emphasis,
+                generate_toc=generate_toc,
+                custom_filename=custom_filename
+            )
 
-        if depth < max_depth:
-            try:
-                html_content = fetch_html(current_url)
-                child_links = scrape_links(current_url, html_content)
-                for link in child_links:
-                    if link not in visited:
-                        queue.append((link, depth + 1))
-            except (ValueError, RuntimeError) as e:
-                console.print(f"[red]{e}[/red]")
+            if depth < max_depth:
+                try:
+                    html_content = await fetch_html(current_url, client)
+                    child_links = scrape_links(current_url, html_content)
+                    for link in child_links:
+                        if link not in visited:
+                            queue.append((link, depth + 1))
+                except (ValueError, RuntimeError) as e:
+                    console.print(f"[red]{e}[/red]")
 
 def build_markdown_site_map(base_url, adjacency):
     lines = [f"# Site Map for {base_url}\n"]
@@ -526,7 +528,7 @@ def build_html_site_map(base_url, adjacency):
     lines.append("</ul>")
     return "\n".join(lines)
 
-def map_site(
+async def map_site(
     base_url,
     output_dir,
     output_format="Markdown",
@@ -545,23 +547,24 @@ def map_site(
     adjacency = {}
     queue = deque([base_url])
 
-    while queue:
-        current_url = queue.popleft()
-        if current_url in visited:
-            continue
-        visited.add(current_url)
+    async with httpx.AsyncClient() as client:
+        while queue:
+            current_url = queue.popleft()
+            if current_url in visited:
+                continue
+            visited.add(current_url)
 
-        try:
-            html_content = fetch_html(current_url)
-        except (ValueError, RuntimeError) as e:
-            console.print(f"[red]{e}[/red]")
-            continue
+            try:
+                html_content = await fetch_html(current_url, client)
+            except (ValueError, RuntimeError) as e:
+                console.print(f"[red]{e}[/red]")
+                continue
 
-        children = scrape_links(current_url, html_content)
-        adjacency[current_url] = children
-        for child in children:
-            if child not in visited:
-                queue.append(child)
+            children = scrape_links(current_url, html_content)
+            adjacency[current_url] = children
+            for child in children:
+                if child not in visited:
+                    queue.append(child)
 
     if output_format == "Markdown":
         site_map_content = build_markdown_site_map(base_url, adjacency)
@@ -614,7 +617,7 @@ def map_site(
 #                 PUBLIC-FACING WRAPPER FUNCTIONS (FEATURES)                #
 ##############################################################################
 
-def do_single_page_conversion(
+async def do_single_page_conversion(
     url,
     output_format="Markdown",
     keep_images=True,
@@ -628,7 +631,7 @@ def do_single_page_conversion(
     Returns the final file path or None if error.
     """
     output_dir = create_output_directory()  # "output"
-    return convert_and_save_page(
+    return await convert_and_save_page(
         url=url,
         output_dir=output_dir,
         output_format=output_format,
@@ -639,7 +642,7 @@ def do_single_page_conversion(
         custom_filename=custom_filename
     )
 
-def do_recursive_crawling(
+async def do_recursive_crawling(
     url,
     max_depth=1,
     output_format="Markdown",
@@ -653,7 +656,7 @@ def do_recursive_crawling(
     Recursive Crawling (always creates "recursive_crawl" subdirectory).
     """
     output_dir = create_output_directory("recursive_crawl")
-    crawl_links(
+    await crawl_links(
         base_url=url,
         max_depth=max_depth,
         output_dir=output_dir,
@@ -665,7 +668,7 @@ def do_recursive_crawling(
         custom_filename=custom_filename
     )
 
-def do_map_only(
+async def do_map_only(
     url,
     output_format="Markdown",
     keep_images=True,
@@ -678,7 +681,7 @@ def do_map_only(
     Map Only (always creates "site_map" subdirectory).
     """
     output_dir = create_output_directory("site_map")
-    map_site(
+    await map_site(
         base_url=url,
         output_dir=output_dir,
         output_format=output_format,
@@ -689,7 +692,7 @@ def do_map_only(
         custom_filename=custom_filename
     )
 
-def do_recursive_crawling_and_map(
+async def do_recursive_crawling_and_map(
     url,
     max_depth=1,
     output_format="Markdown",
@@ -703,7 +706,7 @@ def do_recursive_crawling_and_map(
     Recursive Crawling & then build a site map (always "crawl_and_map" subdir).
     """
     output_dir = create_output_directory("crawl_and_map")
-    crawl_links(
+    await crawl_links(
         base_url=url,
         max_depth=max_depth,
         output_dir=output_dir,
@@ -714,7 +717,7 @@ def do_recursive_crawling_and_map(
         generate_toc=generate_toc,
         custom_filename=custom_filename
     )
-    map_site(
+    await map_site(
         base_url=url,
         output_dir=output_dir,
         output_format=output_format,
@@ -751,7 +754,7 @@ def llm_function_call(
     Returns whatever the underlying function returns (often None or a file path).
     """
     if function_name == "do_single_page_conversion":
-        return do_single_page_conversion(
+        return asyncio.run(do_single_page_conversion(
             url=url,
             output_format=output_format,
             keep_images=keep_images,
@@ -759,9 +762,9 @@ def llm_function_call(
             keep_emphasis=keep_emphasis,
             generate_toc=generate_toc,
             custom_filename=custom_filename
-        )
+        ))
     elif function_name == "do_recursive_crawling":
-        return do_recursive_crawling(
+        return asyncio.run(do_recursive_crawling(
             url=url,
             max_depth=max_depth,
             output_format=output_format,
@@ -770,9 +773,9 @@ def llm_function_call(
             keep_emphasis=keep_emphasis,
             generate_toc=generate_toc,
             custom_filename=custom_filename
-        )
+        ))
     elif function_name == "do_map_only":
-        return do_map_only(
+        return asyncio.run(do_map_only(
             url=url,
             output_format=output_format,
             keep_images=keep_images,
@@ -780,9 +783,9 @@ def llm_function_call(
             keep_emphasis=keep_emphasis,
             generate_toc=generate_toc,
             custom_filename=custom_filename
-        )
+        ))
     elif function_name == "do_recursive_crawling_and_map":
-        return do_recursive_crawling_and_map(
+        return asyncio.run(do_recursive_crawling_and_map(
             url=url,
             max_depth=max_depth,
             output_format=output_format,
@@ -791,7 +794,7 @@ def llm_function_call(
             keep_emphasis=keep_emphasis,
             generate_toc=generate_toc,
             custom_filename=custom_filename
-        )
+        ))
     else:
         console.print(f"[red]Unknown function_name: {function_name}[/red]")
         return None
@@ -814,7 +817,7 @@ def single_page_conversion_cli():
 
     spinner = Spinner("dots", text="Converting single page...")
     with console.status(spinner):
-        do_single_page_conversion(
+        asyncio.run(do_single_page_conversion(
             url=url,
             output_format=settings["output_format"],
             keep_images=settings["keep_images"],
@@ -822,7 +825,7 @@ def single_page_conversion_cli():
             keep_emphasis=settings["keep_emphasis"],
             generate_toc=settings["generate_toc"],
             custom_filename=settings["output_filename"] if settings["custom_filename"] else None
-        )
+        ))
 
 def recursive_crawling_cli():
     """
@@ -846,7 +849,7 @@ def recursive_crawling_cli():
         console.print("[red]Invalid depth. Defaulting to 1.[/red]")
         max_depth_int = 1
 
-    do_recursive_crawling(
+    asyncio.run(do_recursive_crawling(
         url=url,
         max_depth=max_depth_int,
         output_format=settings["output_format"],
@@ -855,7 +858,7 @@ def recursive_crawling_cli():
         keep_emphasis=settings["keep_emphasis"],
         generate_toc=settings["generate_toc"],
         custom_filename=settings["output_filename"] if settings["custom_filename"] else None
-    )
+    ))
 
 def map_only_cli():
     """
@@ -869,7 +872,7 @@ def map_only_cli():
         return
     settings = prompt_advanced_settings()
 
-    do_map_only(
+    asyncio.run(do_map_only(
         url=url,
         output_format=settings["output_format"],
         keep_images=settings["keep_images"],
@@ -877,7 +880,7 @@ def map_only_cli():
         keep_emphasis=settings["keep_emphasis"],
         generate_toc=settings["generate_toc"],
         custom_filename=settings["output_filename"] if settings["custom_filename"] else None
-    )
+    ))
 
 def recursive_crawling_and_map_cli():
     """
@@ -901,7 +904,7 @@ def recursive_crawling_and_map_cli():
         console.print("[red]Invalid depth. Defaulting to 1.[/red]")
         max_depth_int = 1
 
-    do_recursive_crawling_and_map(
+    asyncio.run(do_recursive_crawling_and_map(
         url=url,
         max_depth=max_depth_int,
         output_format=settings["output_format"],
@@ -910,7 +913,7 @@ def recursive_crawling_and_map_cli():
         keep_emphasis=settings["keep_emphasis"],
         generate_toc=settings["generate_toc"],
         custom_filename=settings["output_filename"] if settings["custom_filename"] else None
-    )
+    ))
 
 def main_menu():
     """

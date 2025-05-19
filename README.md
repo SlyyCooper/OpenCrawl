@@ -37,15 +37,16 @@ A powerful, LLM-friendly HTML scraper and converter for seamless web content ext
 The script uses the following **external libraries**:
 
 - **questionary** (for CLI prompts)
-- **requests**
+- **httpx** (async HTTP requests)
 - **html2text**
 - **rich**
 - **beautifulsoup4**
+- **selectolax**
 
 If you do not have them installed, run:
 
 ```bash
-pip install questionary requests html2text rich beautifulsoup4
+pip install questionary httpx html2text rich beautifulsoup4 selectolax
 ```
 
 ---
