@@ -41,12 +41,14 @@ The script uses the following **external libraries**:
 - **html2text**
 - **rich**
 - **beautifulsoup4**
+- **playwright** (for optional JavaScript rendering)
 
 If you do not have them installed, run:
 
 ```bash
-pip install questionary requests html2text rich beautifulsoup4
+pip install questionary requests html2text rich beautifulsoup4 playwright
 ```
+After installing, run `playwright install` to download the necessary browser binaries.
 
 ---
 
@@ -201,6 +203,7 @@ settings = {
     "keep_images": <bool>,
     "keep_links": <bool>,
     "keep_emphasis": <bool>,
+    "render_js": <bool>,
     "generate_toc": <bool>,
     "custom_filename": <bool>,  # Did user choose a custom file name?
     "output_filename": <str or None>  # The actual custom file name if chosen
@@ -220,6 +223,7 @@ When calling `llm_function_call`, you pass in the **function_name** plus named a
 - `generate_toc` (default `False`)
 - `custom_filename` (default `None`)
 - `max_depth` (default `1`)
+- `render_js` (default `False`)
 
 ---
 
@@ -316,7 +320,8 @@ do_recursive_crawling(
     "keep_emphasis": true,
     "generate_toc": true,
     "custom_filename": null,
-    "max_depth": 1
+    "max_depth": 1,
+    "render_js": false
   }
 }
 ```
@@ -334,7 +339,8 @@ llm_function_call(
     keep_emphasis=True,
     generate_toc=True,
     custom_filename=None,
-    max_depth=1
+    max_depth=1,
+    render_js=False
 )
 ```
 
