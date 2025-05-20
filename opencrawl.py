@@ -87,10 +87,36 @@ def is_valid_url(url):
 #                       FETCHING & HTML CLEANUP                               #
 ##############################################################################
 
-def fetch_html(url):
-    """
-    Fetches raw HTML from the URL; raises an exception if it fails.
-    """
+def fetch_rendered_html(url):
+    """Uses Playwright to render the page and return the final HTML."""
+    if not is_valid_url(url):
+        raise ValueError(f"Invalid URL: {url}")
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as exc:
+        raise RuntimeError(
+            "Playwright is required for render_js=True. Install with 'pip install playwright'"
+        ) from exc
+
+    try:
+        with Progress() as progress:
+            task = progress.add_task("[green]Rendering page...", total=None)
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+                page.goto(url, wait_until="networkidle", timeout=15000)
+                html = page.content()
+                browser.close()
+            progress.update(task, completed=100)
+        return html
+    except Exception as e:
+        raise RuntimeError(f"Error rendering the page: {e}")
+
+
+def fetch_html(url, render_js=False):
+    """Fetches raw HTML from the URL; when render_js=True uses a headless browser."""
+    if render_js:
+        return fetch_rendered_html(url)
     if not is_valid_url(url):
         raise ValueError(f"Invalid URL: {url}")
     try:
@@ -179,6 +205,9 @@ def prompt_advanced_settings():
         "Preserve text emphasis (bold/italic)?",
         default=True
     ).ask()
+    render_js = questionary.confirm("Render JavaScript with a headless browser?",
+        default=False
+    ).ask()
 
     generate_toc = False
     if output_format == "Markdown":
@@ -207,6 +236,7 @@ def prompt_advanced_settings():
         "output_format": output_format,
         "keep_images": keep_images,
         "keep_links": keep_links,
+        "render_js": render_js,
         "keep_emphasis": keep_emphasis,
         "generate_toc": generate_toc,
         "custom_filename": custom_filename,
@@ -382,16 +412,18 @@ def convert_and_save_page(
     keep_links=True,
     keep_emphasis=True,
     generate_toc=False,
-    custom_filename=None
+    custom_filename=None,
+    render_js=False
 ):
     """
     Fetches a single page and converts to the chosen output_format.
     - output_format in ["HTML", "Markdown", "JSON"]
     - If Markdown with generate_toc=True, inserts a table of contents.
     Returns the final file path or None on error.
+    Set render_js=True to use a headless browser for dynamic pages.
     """
     try:
-        html_content = fetch_html(url)
+        html_content = fetch_html(url, render_js=render_js)
     except (ValueError, RuntimeError) as e:
         console.print(f"[red]{e}[/red]")
         return None
@@ -450,7 +482,8 @@ def crawl_links(
     keep_links=True,
     keep_emphasis=True,
     generate_toc=False,
-    custom_filename=None
+    custom_filename=None,
+    render_js=False
 ):
     """
     Recursively fetches & converts all same-domain pages up to max_depth.
@@ -474,12 +507,13 @@ def crawl_links(
             keep_links=keep_links,
             keep_emphasis=keep_emphasis,
             generate_toc=generate_toc,
-            custom_filename=custom_filename
+            custom_filename=custom_filename,
+            render_js=render_js
         )
 
         if depth < max_depth:
             try:
-                html_content = fetch_html(current_url)
+                html_content = fetch_html(current_url, render_js=render_js)
                 child_links = scrape_links(current_url, html_content)
                 for link in child_links:
                     if link not in visited:
@@ -536,7 +570,8 @@ def map_site(
     keep_links=True,
     keep_emphasis=True,
     generate_toc=False,
-    custom_filename=None
+    custom_filename=None,
+    render_js=False
 ):
     """
     Crawls entire same-domain site (no depth limit), building a site map in
@@ -554,7 +589,7 @@ def map_site(
         visited.add(current_url)
 
         try:
-            html_content = fetch_html(current_url)
+            html_content = fetch_html(current_url, render_js=render_js)
         except (ValueError, RuntimeError) as e:
             console.print(f"[red]{e}[/red]")
             continue
@@ -623,7 +658,8 @@ def do_single_page_conversion(
     keep_links=True,
     keep_emphasis=True,
     generate_toc=False,
-    custom_filename=None
+    custom_filename=None,
+    render_js=False
 ):
     """
     Single Page Conversion (no subdirectory). 
@@ -638,7 +674,8 @@ def do_single_page_conversion(
         keep_links=keep_links,
         keep_emphasis=keep_emphasis,
         generate_toc=generate_toc,
-        custom_filename=custom_filename
+        custom_filename=custom_filename,
+        render_js=render_js
     )
 
 def do_recursive_crawling(
@@ -649,7 +686,8 @@ def do_recursive_crawling(
     keep_links=True,
     keep_emphasis=True,
     generate_toc=False,
-    custom_filename=None
+    custom_filename=None,
+    render_js=False
 ):
     """
     Recursive Crawling (always creates "recursive_crawl" subdirectory).
@@ -664,7 +702,8 @@ def do_recursive_crawling(
         keep_links=keep_links,
         keep_emphasis=keep_emphasis,
         generate_toc=generate_toc,
-        custom_filename=custom_filename
+        custom_filename=custom_filename,
+        render_js=render_js
     )
 
 def do_map_only(
@@ -674,7 +713,8 @@ def do_map_only(
     keep_links=True,
     keep_emphasis=True,
     generate_toc=False,
-    custom_filename=None
+    custom_filename=None,
+    render_js=False
 ):
     """
     Map Only (always creates "site_map" subdirectory).
@@ -688,7 +728,8 @@ def do_map_only(
         keep_links=keep_links,
         keep_emphasis=keep_emphasis,
         generate_toc=generate_toc,
-        custom_filename=custom_filename
+        custom_filename=custom_filename,
+        render_js=render_js
     )
 
 def do_recursive_crawling_and_map(
@@ -699,7 +740,8 @@ def do_recursive_crawling_and_map(
     keep_links=True,
     keep_emphasis=True,
     generate_toc=False,
-    custom_filename=None
+    custom_filename=None,
+    render_js=False
 ):
     """
     Recursive Crawling & then build a site map (always "crawl_and_map" subdir).
@@ -714,7 +756,8 @@ def do_recursive_crawling_and_map(
         keep_links=keep_links,
         keep_emphasis=keep_emphasis,
         generate_toc=generate_toc,
-        custom_filename=custom_filename
+        custom_filename=custom_filename,
+        render_js=render_js
     )
     map_site(
         base_url=url,
@@ -724,7 +767,8 @@ def do_recursive_crawling_and_map(
         keep_links=keep_links,
         keep_emphasis=keep_emphasis,
         generate_toc=generate_toc,
-        custom_filename=custom_filename
+        custom_filename=custom_filename,
+        render_js=render_js
     )
 
 ##############################################################################
@@ -740,7 +784,8 @@ def llm_function_call(
     keep_emphasis: bool = True,
     generate_toc: bool = False,
     custom_filename: str = None,
-    max_depth: int = 1
+    max_depth: int = 1,
+    render_js: bool = False
 ):
     """
     A universal function that an LLM can call with JSON parameters.
@@ -760,7 +805,8 @@ def llm_function_call(
             keep_links=keep_links,
             keep_emphasis=keep_emphasis,
             generate_toc=generate_toc,
-            custom_filename=custom_filename
+            custom_filename=custom_filename,
+            render_js=render_js
         )
     elif function_name == "do_recursive_crawling":
         return do_recursive_crawling(
@@ -771,7 +817,8 @@ def llm_function_call(
             keep_links=keep_links,
             keep_emphasis=keep_emphasis,
             generate_toc=generate_toc,
-            custom_filename=custom_filename
+            custom_filename=custom_filename,
+            render_js=render_js
         )
     elif function_name == "do_map_only":
         return do_map_only(
@@ -781,7 +828,8 @@ def llm_function_call(
             keep_links=keep_links,
             keep_emphasis=keep_emphasis,
             generate_toc=generate_toc,
-            custom_filename=custom_filename
+            custom_filename=custom_filename,
+            render_js=render_js
         )
     elif function_name == "do_recursive_crawling_and_map":
         return do_recursive_crawling_and_map(
@@ -792,7 +840,8 @@ def llm_function_call(
             keep_links=keep_links,
             keep_emphasis=keep_emphasis,
             generate_toc=generate_toc,
-            custom_filename=custom_filename
+            custom_filename=custom_filename,
+            render_js=render_js
         )
     else:
         console.print(f"[red]Unknown function_name: {function_name}[/red]")
@@ -823,7 +872,8 @@ def single_page_conversion_cli():
             keep_links=settings["keep_links"],
             keep_emphasis=settings["keep_emphasis"],
             generate_toc=settings["generate_toc"],
-            custom_filename=settings["output_filename"] if settings["custom_filename"] else None
+            custom_filename=settings["output_filename"] if settings["custom_filename"] else None,
+            render_js=settings["render_js"]
         )
 
 def recursive_crawling_cli():
@@ -856,7 +906,8 @@ def recursive_crawling_cli():
         keep_links=settings["keep_links"],
         keep_emphasis=settings["keep_emphasis"],
         generate_toc=settings["generate_toc"],
-        custom_filename=settings["output_filename"] if settings["custom_filename"] else None
+        custom_filename=settings["output_filename"] if settings["custom_filename"] else None,
+        render_js=settings["render_js"]
     )
 
 def map_only_cli():
@@ -878,7 +929,8 @@ def map_only_cli():
         keep_links=settings["keep_links"],
         keep_emphasis=settings["keep_emphasis"],
         generate_toc=settings["generate_toc"],
-        custom_filename=settings["output_filename"] if settings["custom_filename"] else None
+        custom_filename=settings["output_filename"] if settings["custom_filename"] else None,
+        render_js=settings["render_js"]
     )
 
 def recursive_crawling_and_map_cli():
@@ -911,7 +963,8 @@ def recursive_crawling_and_map_cli():
         keep_links=settings["keep_links"],
         keep_emphasis=settings["keep_emphasis"],
         generate_toc=settings["generate_toc"],
-        custom_filename=settings["output_filename"] if settings["custom_filename"] else None
+        custom_filename=settings["output_filename"] if settings["custom_filename"] else None,
+        render_js=settings["render_js"]
     )
 
 def main_menu():
