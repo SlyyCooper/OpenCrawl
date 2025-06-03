@@ -19,8 +19,9 @@ A powerful, LLM-friendly HTML scraper and converter for seamless web content ext
    1. [Single Page Conversion](#single-page-conversion)  
    2. [Recursive Crawling](#recursive-crawling)  
    3. [Map (Site Map Only)](#map-site-map-only)  
-   4. [Recursive Crawling & Map](#recursive-crawling--map)  
-   5. [Universal LLM Function Call](#universal-llm-function-call)  
+   4. [Recursive Crawling & Map](#recursive-crawling--map)
+   5. [Monitor Web Page for Changes](#monitor-web-page-for-changes)
+   6. [Universal LLM Function Call](#universal-llm-function-call)
 5. [Dictionaries & Parameters](#dictionaries--parameters)  
    1. [The Settings Dictionary (CLI)](#the-settings-dictionary-cli)  
    2. [LLM Function Call Parameters](#llm-function-call-parameters)  
@@ -160,7 +161,23 @@ def do_recursive_crawling_and_map(
   - The **site map** (html/md/json) is also placed there.  
 - **Returns**: `None`.
 
-### 4.5 Universal LLM Function Call
+### 4.5 Monitor Web Page for Changes
+```python
+def monitor_page_for_changes(
+    url,
+    check_interval=60,
+    checks=2,
+    render_js=False,
+    keep_links=True,
+    keep_images=True,
+    keep_emphasis=True
+) -> None
+```
+- **Description**: Periodically checks a page and prints a diff when changes are detected.
+- **Output**: Changes are displayed in the terminal.
+- **Returns**: `None`.
+
+### 4.6 Universal LLM Function Call
 ```python
 def llm_function_call(
     function_name: str,
@@ -171,7 +188,10 @@ def llm_function_call(
     keep_emphasis: bool = True,
     generate_toc: bool = False,
     custom_filename: str = None,
-    max_depth: int = 1
+    max_depth: int = 1,
+    render_js: bool = False,
+    check_interval: int = 60,
+    checks: int = 2
 ) -> Any
 ```
 - **Description**: A **universal dispatcher** so an LLM can call the script’s features by name.  
@@ -188,6 +208,9 @@ def llm_function_call(
   - **generate_toc**: Whether to generate a table of contents if `output_format="Markdown"`.
   - **custom_filename**: Optional string for the file name.
   - **max_depth**: Only relevant for crawling functions (otherwise ignored).
+  - **render_js**: Use Playwright to render JavaScript before scraping.
+  - **check_interval**: Seconds between checks when monitoring a page.
+  - **checks**: Number of checks when monitoring a page.
 - **Returns**: The result of the underlying function, typically a path or **None**.
 
 ---
@@ -224,6 +247,8 @@ When calling `llm_function_call`, you pass in the **function_name** plus named a
 - `custom_filename` (default `None`)
 - `max_depth` (default `1`)
 - `render_js` (default `False`)
+- `check_interval` (default `60`)
+- `checks` (default `2`)
 
 ---
 
@@ -238,8 +263,9 @@ When calling `llm_function_call`, you pass in the **function_name** plus named a
    - **Single Page Conversion**  
    - **Recursive Crawling**  
    - **Map**  
-   - **Recursive Crawling & Map**  
-   - **Exit**  
+   - **Recursive Crawling & Map**
+   - **Monitor Web Page for Changes**
+   - **Exit**
 
 3. **Answer** the prompts (URL, advanced settings, depth if applicable).  
 
@@ -251,6 +277,7 @@ When calling `llm_function_call`, you pass in the **function_name** plus named a
        do_recursive_crawling,
        do_map_only,
        do_recursive_crawling_and_map,
+       monitor_page_for_changes,
        llm_function_call
    )
    ```
