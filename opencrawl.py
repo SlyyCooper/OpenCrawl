@@ -32,6 +32,8 @@ import json
 from datetime import datetime
 from urllib.parse import urlparse, urljoin
 from collections import deque
+import difflib
+import time
 
 # --- External libraries ---
 #   pip install questionary requests html2text rich beautifulsoup4
@@ -771,6 +773,75 @@ def do_recursive_crawling_and_map(
         render_js=render_js
     )
 
+def monitor_page_for_changes(
+    url,
+    check_interval=60,
+    checks=2,
+    render_js=False,
+    keep_links=True,
+    keep_images=True,
+    keep_emphasis=True,
+):
+    """Monitors a single web page for changes.
+
+    Parameters
+    ----------
+    url: str
+        The page to monitor.
+    check_interval: int
+        Seconds between checks.
+    checks: int
+        Number of checks to perform. Use a large value for long running monitor.
+    render_js: bool
+        Whether to render the page with Playwright.
+    keep_links, keep_images, keep_emphasis:
+        Passed to the Markdown converter to control output.
+    """
+    try:
+        html_content = fetch_html(url, render_js=render_js)
+    except (ValueError, RuntimeError) as e:
+        console.print(f"[red]{e}[/red]")
+        return
+
+    previous = convert_html_to_markdown(
+        html_content,
+        keep_links=keep_links,
+        keep_images=keep_images,
+        keep_emphasis=keep_emphasis,
+    )
+    console.print(
+        f"[bold green]Monitoring[/bold green] {url} every {check_interval}s (total checks: {checks})"
+    )
+
+    for _ in range(checks):
+        time.sleep(check_interval)
+        try:
+            html_content = fetch_html(url, render_js=render_js)
+        except (ValueError, RuntimeError) as e:
+            console.print(f"[red]{e}[/red]")
+            continue
+
+        current = convert_html_to_markdown(
+            html_content,
+            keep_links=keep_links,
+            keep_images=keep_images,
+            keep_emphasis=keep_emphasis,
+        )
+
+        if current != previous:
+            console.print("[yellow]Change detected! Diff:[/yellow]")
+            diff = difflib.unified_diff(
+                previous.splitlines(),
+                current.splitlines(),
+                lineterm="",
+            )
+            for line in diff:
+                console.print(line)
+            previous = current
+        else:
+            console.print("[cyan]No change detected.[/cyan]")
+
+
 ##############################################################################
 #                           LLM FUNCTION CALL                                #
 ##############################################################################
@@ -785,7 +856,9 @@ def llm_function_call(
     generate_toc: bool = False,
     custom_filename: str = None,
     max_depth: int = 1,
-    render_js: bool = False
+    render_js: bool = False,
+    check_interval: int = 60,
+    checks: int = 2
 ):
     """
     A universal function that an LLM can call with JSON parameters.
@@ -794,6 +867,7 @@ def llm_function_call(
       - "do_recursive_crawling"
       - "do_map_only"
       - "do_recursive_crawling_and_map"
+      - "monitor_page_for_changes"
     The other parameters match the script's typical usage.
     Returns whatever the underlying function returns (often None or a file path).
     """
@@ -842,6 +916,13 @@ def llm_function_call(
             generate_toc=generate_toc,
             custom_filename=custom_filename,
             render_js=render_js
+        )
+    elif function_name == "monitor_page_for_changes":
+        return monitor_page_for_changes(
+            url=url,
+            check_interval=check_interval,
+            checks=checks,
+            render_js=render_js,
         )
     else:
         console.print(f"[red]Unknown function_name: {function_name}[/red]")
@@ -967,10 +1048,35 @@ def recursive_crawling_and_map_cli():
         render_js=settings["render_js"]
     )
 
+def monitor_page_cli():
+    """CLI flow for monitoring a page for changes (option 5)."""
+    url = questionary.text(
+        "Enter the URL to monitor (or press Enter to cancel):"
+    ).ask()
+    if not url:
+        console.print("[yellow]No URL provided, returning to main menu...[/yellow]")
+        return
+    interval = questionary.text(
+        "Check interval in seconds [Default=60]",
+        default="60",
+    ).ask()
+    checks = questionary.text(
+        "Number of checks to perform [Default=2]",
+        default="2",
+    ).ask()
+    try:
+        interval_int = int(interval)
+        checks_int = int(checks)
+    except ValueError:
+        console.print("[red]Invalid numbers. Using defaults (60s, 2 checks).[/red]")
+        interval_int = 60
+        checks_int = 2
+    monitor_page_for_changes(url, check_interval=interval_int, checks=checks_int)
+
 def main_menu():
     """
     Interactive main menu. 
-    Allows user to choose 1 of 4 operations, or exit.
+    Allows user to choose 1 of 5 operations, or exit.
     """
     while True:
         choice = questionary.select(
@@ -980,6 +1086,7 @@ def main_menu():
                 "2. Recursive Crawling",
                 "3. Map",
                 "4. Recursive Crawling & Map",
+                "5. Monitor Page for Changes",
                 "Exit"
             ]
         ).ask()
@@ -992,6 +1099,8 @@ def main_menu():
             map_only_cli()
         elif choice.startswith("4"):
             recursive_crawling_and_map_cli()
+        elif choice.startswith("5"):
+            monitor_page_cli()
         elif choice == "Exit":
             console.print("[bold cyan]Goodbye![/bold cyan]")
             break
